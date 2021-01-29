@@ -119,38 +119,45 @@ async fn run(
         tokio::select! {
             event = manager.read() => {
                 let event = event?;
-                let mut last_pressed_key = None;
                 if let Event::Key { direction, kind: KeyKind::Key(key) } = event {
                     if let Some(state) = key_states.get_mut(&key) {
                         *state = direction == Direction::Down;
-                        last_pressed_key = Some(key);
-                    }
-                }
+                        if key_states.iter().filter(|(_, state)| **state).count() == key_states.len() {
+                            let new_current = (current + 1) % (clients.len() + 1);
 
-                if key_states.iter().filter(|(_, state)| **state).count() == key_states.len() {
-                    for (key, state) in key_states.iter_mut() {
-                        // Release all currently pressed keys from combo
-                        // NOTE: This will NOT release other keys that are not part of the combo
-                        if Some(*key) != last_pressed_key {
-                            let event = Event::Key{
-                                direction: Direction::Up,
-                                kind: KeyKind::Key(*key),
-                            };
-                            if current == 0 {
-                                manager.write(event).await?;
-                            }else {
-                                let idx = current - 1;
-                                // We cannot remove broken client here, to not crash in next iteration,
-                                // and it will be removed later one anyways, therefore we just ignore error here
-                                let _ = clients[idx].send(event);
+                            for (other_key, _) in key_states.iter().filter(|(combo_key, _)| **combo_key != key) {
+                                // On current client, release all currently pressed keys from the combo
+                                // NOTE: This will NOT release other keys that are not part of the combo
+                                let release_event = Event::Key {
+                                    direction: Direction::Up,
+                                    kind: KeyKind::Key(*other_key),
+                                };
+                                if current == 0 {
+                                    manager.write(release_event).await?;
+                                } else {
+                                    let idx = current - 1;
+                                    // We cannot remove broken client here, to not crash in next iteration,
+                                    // and it will be removed later one anyways, therefore we just ignore error here
+                                    let _ = clients[idx].send(release_event);
+                                }
+
+                                // On new client, press all currently pressed keys from the combo
+                                let press_event = Event::Key {
+                                    direction: Direction::Down,
+                                    kind: KeyKind::Key(*other_key),
+                                };
+                                if new_current == 0 {
+                                    manager.write(press_event).await?
+                                } else {
+                                    let idx = new_current - 1;
+                                    let _ = clients[idx].send(press_event);
+                                }
                             }
-                        }
-                        *state = false;
-                    }
 
-                    current = (current + 1) % (clients.len() + 1);
-                    log::info!("Switching to client {}", current);
-                    continue;
+                            current = new_current;
+                            log::info!("Switching to client {}", current);
+                        }
+                    }
                 }
 
                 if current != 0 {
