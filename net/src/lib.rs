@@ -31,10 +31,13 @@ where
     R: AsyncRead + Unpin,
 {
     let length = {
-        let mut bytes = [0; 1];
+        let mut bytes = [0; 4];
         reader.read_exact(&mut bytes).await?;
 
-        bytes[0]
+        ((bytes[0] as u32) <<  0) +
+        ((bytes[1] as u32) <<  8) +
+        ((bytes[2] as u32) << 16) +
+        ((bytes[3] as u32) << 24)
     };
 
     let mut data = vec![0; length as usize];
@@ -49,7 +52,7 @@ where
 {
     let data =
         bincode::serialize(&message).map_err(|err| Error::new(ErrorKind::InvalidInput, err))?;
-    let length: u8 = data
+    let length: u32 = data
         .len()
         .try_into()
         .map_err(|_| Error::new(ErrorKind::InvalidInput, "Serialized data is too large"))?;
@@ -59,7 +62,7 @@ where
     Ok(())
 }
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Message {
     Event(Event),
     // Sent only to keep the connection alive.

@@ -2,7 +2,7 @@ mod config;
 
 use anyhow::{Context, Error};
 use config::Config;
-use input::{Direction, Event, EventManager, Key, KeyKind};
+use input::{Direction, Event, InputEvent, EventManager, Key, KeyKind};
 use log::LevelFilter;
 use net::{self, Message, PROTOCOL_VERSION};
 use std::collections::{HashMap, HashSet};
@@ -71,6 +71,9 @@ async fn run(
 
     log::info!("Listening on {}", listen_address);
 
+    let mut manager = EventManager::new().await?;
+
+
     let (client_sender, mut client_receiver) = mpsc::unbounded_channel();
     tokio::spawn(async move {
         loop {
@@ -91,6 +94,8 @@ async fn run(
             };
 
             let (sender, receiver) = mpsc::unbounded_channel();
+
+
             if client_sender.send(Ok(sender)).is_err() {
                 return;
             }
@@ -109,7 +114,6 @@ async fn run(
 
     let mut clients: Vec<UnboundedSender<Event>> = Vec::new();
     let mut current = 0;
-    let mut manager = EventManager::new().await?;
     let mut key_states: HashMap<_, _> = switch_keys
         .iter()
         .copied()
@@ -119,50 +123,62 @@ async fn run(
         tokio::select! {
             event = manager.read() => {
                 let event = event?;
-                if let Event::Key { direction, kind: KeyKind::Key(key) } = event {
-                    if let Some(state) = key_states.get_mut(&key) {
-                        *state = direction == Direction::Down;
-                        if key_states.iter().filter(|(_, state)| **state).count() == key_states.len() {
-                            let new_current = (current + 1) % (clients.len() + 1);
 
-                            for (other_key, _) in key_states.iter().filter(|(combo_key, _)| **combo_key != key) {
-                                // On current client, release all currently pressed keys from the combo
-                                // NOTE: This will NOT release other keys that are not part of the combo
-                                let release_event = Event::Key {
-                                    direction: Direction::Up,
-                                    kind: KeyKind::Key(*other_key),
-                                };
-                                if current == 0 {
-                                    manager.write(release_event).await?;
-                                } else {
-                                    let idx = current - 1;
-                                    // We cannot remove broken client here, to not crash in next iteration,
-                                    // and it will be removed later one anyways, therefore we just ignore error here
-                                    let _ = clients[idx].send(release_event);
+                if let Event::Input { device_id, input } = event {
+                    if let InputEvent::Key { direction, kind: KeyKind::Key(key) } = input {
+                        if let Some(state) = key_states.get_mut(&key) {
+                            *state = direction == Direction::Down;
+                            if key_states.iter().filter(|(_, state)| **state).count() == key_states.len() {
+                                let new_current = (current + 1) % (clients.len() + 1);
+
+                                for (other_key, _) in key_states.iter().filter(|(combo_key, _)| **combo_key != key) {
+                                    // On current client, release all currently pressed keys from the combo
+                                    // NOTE: This will NOT release other keys that are not part of the combo
+                                    let release_input = InputEvent::Key {
+                                        direction: Direction::Up,
+                                        kind: KeyKind::Key(*other_key),
+                                    };
+                                    let release_event = Event::Input {
+                                        device_id: device_id,
+                                        input: release_input,
+                                    };
+                                    if current == 0 {
+                                        // TODO
+                                        // manager.write(release_event).await?;
+                                    } else {
+                                        let idx = current - 1;
+                                        // We cannot remove broken client here, to not crash in next iteration,
+                                        // and it will be removed later one anyways, therefore we just ignore error here
+                                        let _ = clients[idx].send(release_event);
+                                    }
+
+                                    // On new client, press all currently pressed keys from the combo
+                                    let press_input = InputEvent::Key {
+                                        direction: Direction::Down,
+                                        kind: KeyKind::Key(*other_key),
+                                    };
+                                    let press_event = Event::Input {
+                                        device_id: device_id,
+                                        input: press_input,
+                                    };
+                                    if new_current == 0 {
+                                        manager.write(press_event).await?
+                                    } else {
+                                        let idx = new_current - 1;
+                                        let _ = clients[idx].send(press_event);
+                                    }
                                 }
 
-                                // On new client, press all currently pressed keys from the combo
-                                let press_event = Event::Key {
-                                    direction: Direction::Down,
-                                    kind: KeyKind::Key(*other_key),
-                                };
-                                if new_current == 0 {
-                                    manager.write(press_event).await?
-                                } else {
-                                    let idx = new_current - 1;
-                                    let _ = clients[idx].send(press_event);
-                                }
+                                current = new_current;
+                                log::info!("Switching to client {}", current);
                             }
-
-                            current = new_current;
-                            log::info!("Switching to client {}", current);
                         }
                     }
                 }
 
                 if current != 0 {
                     let idx = current - 1;
-                    if clients[idx].send(event).is_ok() {
+                    if clients[idx].send(event.clone()).is_ok() {
                         continue;
                     }
 
@@ -170,10 +186,14 @@ async fn run(
                     current = 0;
                 }
 
-                manager.write(event).await?;
+                // manager.write(event).await?;
             }
             sender = client_receiver.recv() => {
-                clients.push(sender.unwrap()?);
+                let sender = sender.unwrap()?;
+                for device in manager.devices.values() {
+                    sender.send(Event::NewDevice(device.clone()));
+                }
+                clients.push(sender);
             }
         }
     }

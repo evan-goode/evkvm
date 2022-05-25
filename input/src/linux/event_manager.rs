@@ -1,4 +1,4 @@
-use crate::event::Event;
+use crate::event::{Event, Device};
 use crate::linux::event_reader::{EventReader, OpenError};
 use crate::linux::event_writer::EventWriter;
 use futures::StreamExt;
@@ -6,15 +6,18 @@ use inotify::{Inotify, WatchMask};
 use std::io::{Error, ErrorKind};
 use std::path::Path;
 use std::time::Duration;
+use std::collections::HashMap;
 use tokio::fs;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use tokio::sync::oneshot::{self, Receiver};
 use tokio::time;
 
 const EVENT_PATH: &str = "/dev/input";
+const LOCAL_DEVICE_ID: u16 = u16::MAX;
 
 pub struct EventManager {
-    writer: EventWriter,
+    pub devices: HashMap<u16, Device>,
+    pub writers: HashMap<u16, EventWriter>,
     event_receiver: UnboundedReceiver<Result<Event, Error>>,
     watcher_receiver: Receiver<Error>,
 }
@@ -33,15 +36,16 @@ impl EventManager {
         // directly from the terminal for the time being until a proper fix is made.
         time::sleep(Duration::from_millis(500)).await;
 
+        let devices: HashMap<u16, Device> = HashMap::new();
+        let writers: HashMap<u16, EventWriter> = HashMap::new();
+
+        // Sleep for a while to give userspace time to register our devices.
+        // time::sleep(Duration::from_secs(1)).await;
+
         let mut read_dir = fs::read_dir(EVENT_PATH).await?;
         while let Some(entry) = read_dir.next_entry().await? {
             spawn_reader(&entry.path(), event_sender.clone()).await?;
         }
-
-        let writer = EventWriter::new().await?;
-
-        // Sleep for a while to give userspace time to register our devices.
-        time::sleep(Duration::from_secs(1)).await;
 
         let (watcher_sender, watcher_receiver) = oneshot::channel();
         tokio::spawn(async {
@@ -51,7 +55,8 @@ impl EventManager {
         });
 
         Ok(EventManager {
-            writer,
+            devices,
+            writers,
             event_receiver,
             watcher_receiver,
         })
@@ -62,14 +67,46 @@ impl EventManager {
             return Err(err);
         }
 
-        self.event_receiver
+        let event_result = self.event_receiver
             .recv()
             .await
-            .ok_or_else(|| Error::new(ErrorKind::Other, "All devices closed"))?
+            .ok_or_else(|| Error::new(ErrorKind::Other, "All devices closed"))?;
+
+            // update manager state
+        match event_result {
+            Ok(Event::NewDevice(ref device)) => {
+                println!("adding device {:?}", &device);
+                self.devices.insert(device.id, device.clone());
+            },
+            Ok(Event::RemoveDevice(device_id)) => {
+                self.devices.remove(&device_id);
+            },
+            _ => {},
+        }
+
+
+        event_result
     }
 
     pub async fn write(&mut self, event: Event) -> Result<(), Error> {
-        self.writer.write(event).await
+        match event {
+            Event::Input { device_id, input } => {
+                match self.writers.get_mut(&device_id) {
+                    Some(writer) => writer.write(input).await,
+                    _ => Ok(()),
+                }
+            },
+            Event::NewDevice(device) => {
+                let id = device.id;
+                let writer = EventWriter::new(device).await?;
+                self.writers.insert(id, writer);
+                Ok(())
+            },
+            Event::RemoveDevice(device_id) => {
+                self.writers.remove(&device_id);
+                Ok(())
+            },
+        }
     }
 }
 
@@ -97,7 +134,11 @@ async fn spawn_reader(
         Err(OpenError::AlreadyOpened) => return Ok(()),
     };
 
+    let event = Event::NewDevice(reader.device.clone());
+    sender.send(Ok(event)).unwrap();
+
     tokio::spawn(handle_events(reader, sender));
+
     Ok(())
 }
 
@@ -123,14 +164,26 @@ async fn handle_notify(sender: UnboundedSender<Result<Event, Error>>) -> Result<
 async fn handle_events(mut reader: EventReader, sender: UnboundedSender<Result<Event, Error>>) {
     loop {
         let result = match reader.read().await {
-            Ok(event) => sender.send(Ok(event)).is_ok(),
+            Ok(input_event) => {
+                let event = Event::Input {
+                    device_id: reader.device.id,
+                    input: input_event,
+                };
+                sender.send(Ok(event)).is_ok()
+            }
             // This happens if the device is disconnected.
             // In that case simply terminate the reading task.
-            Err(ref err) if err.raw_os_error() == Some(libc::ENODEV) => false,
+            Err(ref err) if err.raw_os_error() == Some(libc::ENODEV) => {
+                println!("fuck device removed");
+                let event = Event::RemoveDevice(reader.device.id);
+                let _ = sender.send(Ok(event));
+                false
+            },
             Err(err) => {
+                println!("big fuck");
                 let _ = sender.send(Err(err));
                 false
-            }
+            },
         };
 
         if !result {

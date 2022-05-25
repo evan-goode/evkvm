@@ -2,7 +2,7 @@ mod config;
 
 use anyhow::{Context, Error};
 use config::Config;
-use input::EventWriter;
+use input::EventManager;
 use log::LevelFilter;
 use net::{self, Message, PROTOCOL_VERSION};
 use std::convert::Infallible;
@@ -25,6 +25,7 @@ async fn run(server: &str, port: u16, certificate_path: &Path) -> Result<Infalli
 
     let connector: tokio_native_tls::TlsConnector = TlsConnector::builder()
         .add_root_certificate(certificate)
+        .danger_accept_invalid_hostnames(true)
         .build()
         .context("Failed to create connector")?
         .into();
@@ -49,13 +50,13 @@ async fn run(server: &str, port: u16, certificate_path: &Path) -> Result<Infalli
         ));
     }
 
-    let mut writer = EventWriter::new().await?;
+    let mut manager = EventManager::new().await?;
     loop {
         let message = time::timeout(net::MESSAGE_TIMEOUT, net::read_message(&mut stream))
             .await
             .context("Read timed out")??;
         match message {
-            Message::Event(event) => writer.write(event).await?,
+            Message::Event(event) => manager.write(event).await?,
             Message::KeepAlive => {}
         }
     }
