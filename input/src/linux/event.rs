@@ -1,5 +1,5 @@
-mod button;
-mod key;
+pub mod button;
+pub mod key;
 
 use crate::event::{Axis, Button, Direction, InputEvent, Key, KeyKind};
 use crate::linux::glue;

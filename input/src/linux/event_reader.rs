@@ -1,4 +1,4 @@
-use crate::event::{Capability, AbsInfo, Device, InputEvent};
+use crate::event::{Capability, AbsInfo, Device, InputEvent, Grab};
 use crate::linux::device_id;
 use crate::linux::glue::{self, libevdev, libevdev_uinput};
 use std::ffi;
@@ -10,6 +10,11 @@ use std::os::unix::io::AsRawFd;
 use std::path::Path;
 use std::str::FromStr;
 use tokio::io::unix::AsyncFd;
+use std::ffi::CStr;
+
+//TODO
+use std::time::Duration;
+use tokio::time;
 
 pub(crate) struct EventReader {
     pub device: Device,
@@ -18,14 +23,7 @@ pub(crate) struct EventReader {
 }
 
 impl EventReader {
-    pub async fn open(path: &Path) -> Result<Self, OpenError> {
-        let path = path.to_owned();
-        tokio::task::spawn_blocking(move || Self::open_sync(&path))
-            .await
-            .map_err(|err| OpenError::Io(err.into()))?
-    }
-
-    fn open_sync(path: &Path) -> Result<Self, OpenError> {
+    pub fn new(path: &Path) -> Result<Self, OpenError> {
         let file = OpenOptions::new()
             .read(true)
             .custom_flags(libc::O_NONBLOCK)
@@ -48,19 +46,30 @@ impl EventReader {
             )
         };
 
-        // Check if we're not opening our own virtual device. TODO
-        if version == device_id::VERSION as _ {
+        let name_c_str = unsafe {
+            let name_buf = glue::libevdev_get_name(evdev);
+            ffi::CStr::from_ptr(name_buf)
+        };
+        let name = name_c_str.to_str().unwrap().to_owned();
+
+        // Check if we're not opening our own virtual device.
+        // println!("are we opening our own device? o.O");
+        // println!("name, {}", &name);
+        // let uniq_buf = unsafe { glue::libevdev_get_name(evdev) };
+        // if !uniq_buf.is_null() {
+        //     let uniq_c_str = unsafe { ffi::CStr::from_ptr(uniq_buf) };
+        //     let uniq = uniq_c_str.to_str().unwrap().to_owned();
+        //     println!("uniq, {}", &uniq);
+
+        if name.starts_with("skvm-") {
             unsafe {
                 glue::libevdev_free(evdev);
             }
 
+            println!("already opened!!!, {}", &name);
+
             return Err(OpenError::AlreadyOpened);
         }
-
-        let name = unsafe {
-            let name_ptr = glue::libevdev_get_name(evdev);
-            ffi::CStr::from_ptr(name_ptr).to_str().unwrap().to_owned()
-        };
 
         let file_name = path
             .file_name()
@@ -128,7 +137,7 @@ impl EventReader {
 
         let device = Device {
             id,
-            // name,
+            name,
             vendor: vendor as u16,
             product: product as u16,
             bustype: bustype as u16,
@@ -174,6 +183,24 @@ impl EventReader {
             device,
             // uinput,
         })
+    }
+
+    pub fn grab(&mut self, grab: Grab) -> Result<(), Error> {
+        let ret = unsafe {
+            glue::libevdev_grab(
+                self.evdev,
+                match grab {
+                    Grab::Grab => glue::libevdev_grab_mode_LIBEVDEV_GRAB,
+                    Grab::Ungrab => glue::libevdev_grab_mode_LIBEVDEV_UNGRAB,
+                }
+            )
+        };
+
+        if ret < 0 {
+            return Err(Error::from_raw_os_error(-ret));
+        }
+
+        Ok(())
     }
 
     pub async fn read(&mut self) -> Result<InputEvent, Error> {

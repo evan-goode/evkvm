@@ -4,6 +4,7 @@ use crate::linux::glue::{self, input_event, libevdev, libevdev_uinput};
 use std::io::{Error, ErrorKind};
 use std::mem::MaybeUninit;
 use std::ops::RangeInclusive;
+use std::ffi;
 
 pub struct EventWriter {
     evdev: *mut libevdev,
@@ -85,11 +86,15 @@ unsafe impl Send for EventWriter {}
 
 unsafe fn setup_evdev(evdev: *mut libevdev, device: &Device) -> Result<(), Error> {
     // TODO name
-    glue::libevdev_set_name(evdev, b"rkvm\0".as_ptr() as *const _);
+
     glue::libevdev_set_id_vendor(evdev, device.vendor as _);
     glue::libevdev_set_id_product(evdev, device.product as _);
-    glue::libevdev_set_id_version(evdev, 0xdead as _);
+    glue::libevdev_set_id_version(evdev, device.version as _);
     glue::libevdev_set_id_bustype(evdev, device.bustype as _);
+
+    let name = format!("skvm-{}", device.name);
+    let name_c_string = ffi::CString::new(name).unwrap();
+    glue::libevdev_set_name(evdev, name_c_string.as_ptr() as *const _);
 
     for capability in &device.capabilities {
         let ret = match *capability {

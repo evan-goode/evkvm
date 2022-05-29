@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Event {
-    Input { device_id: u16, input: InputEvent },
+    Input { device_id: u16, input: InputEvent, syn: bool },
     NewDevice(Device),
     RemoveDevice(u16),
 }
@@ -19,9 +19,16 @@ pub enum InputEvent {
     Other { type_: u16, code: u16, value: i32 },
 }
 
+#[derive(Copy, Clone, Debug)]
+pub enum Grab {
+    Grab,
+    Ungrab,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Device {
     pub id: u16,
+    pub name: String,
     pub vendor: u16,
     pub product: u16,
     pub bustype: u16,

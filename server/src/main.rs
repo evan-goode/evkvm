@@ -2,7 +2,7 @@ mod config;
 
 use anyhow::{Context, Error};
 use config::Config;
-use input::{Direction, Event, InputEvent, EventManager, Key, KeyKind};
+use input::{Direction, Event, Grab, InputEvent, EventManager, Key, KeyKind};
 use log::LevelFilter;
 use net::{self, Message, PROTOCOL_VERSION};
 use std::collections::{HashMap, HashSet};
@@ -124,28 +124,34 @@ async fn run(
             event = manager.read() => {
                 let event = event?;
 
-                if let Event::Input { device_id, input } = event {
+                if let Event::Input { device_id, input, syn } = event {
                     if let InputEvent::Key { direction, kind: KeyKind::Key(key) } = input {
                         if let Some(state) = key_states.get_mut(&key) {
                             *state = direction == Direction::Down;
                             if key_states.iter().filter(|(_, state)| **state).count() == key_states.len() {
                                 let new_current = (current + 1) % (clients.len() + 1);
 
-                                for (other_key, _) in key_states.iter().filter(|(combo_key, _)| **combo_key != key) {
+                                for (other_key, _) in key_states.iter() {
                                     // On current client, release all currently pressed keys from the combo
                                     // NOTE: This will NOT release other keys that are not part of the combo
                                     let release_input = InputEvent::Key {
                                         direction: Direction::Up,
                                         kind: KeyKind::Key(*other_key),
                                     };
-                                    let release_event = Event::Input {
-                                        device_id: device_id,
-                                        input: release_input,
-                                    };
                                     if current == 0 {
                                         // TODO
-                                        // manager.write(release_event).await?;
+                                        let release_event = Event::Input {
+                                            device_id: manager.local_device_id,
+                                            input: release_input,
+                                            syn: true,
+                                        };
+                                        manager.write(release_event).await?;
                                     } else {
+                                        let release_event = Event::Input {
+                                            device_id: device_id,
+                                            input: release_input,
+                                            syn: true,
+                                        };
                                         let idx = current - 1;
                                         // We cannot remove broken client here, to not crash in next iteration,
                                         // and it will be removed later one anyways, therefore we just ignore error here
@@ -157,16 +163,28 @@ async fn run(
                                         direction: Direction::Down,
                                         kind: KeyKind::Key(*other_key),
                                     };
-                                    let press_event = Event::Input {
-                                        device_id: device_id,
-                                        input: press_input,
-                                    };
                                     if new_current == 0 {
+                                        let press_event = Event::Input {
+                                            device_id: manager.local_device_id,
+                                            input: press_input,
+                                            syn: true,
+                                        };
                                         manager.write(press_event).await?
                                     } else {
+                                        let press_event = Event::Input {
+                                            device_id: device_id,
+                                            input: press_input,
+                                            syn: true,
+                                        };
                                         let idx = new_current - 1;
                                         let _ = clients[idx].send(press_event);
                                     }
+                                }
+
+                                if new_current == 0 {
+                                    manager.grab(Grab::Ungrab);
+                                } else {
+                                    manager.grab(Grab::Grab);
                                 }
 
                                 current = new_current;
@@ -184,6 +202,7 @@ async fn run(
 
                     clients.remove(idx);
                     current = 0;
+                    manager.grab(Grab::Ungrab);
                 }
 
                 // manager.write(event).await?;
