@@ -2,7 +2,7 @@ mod config;
 
 use anyhow::{Context, Error};
 use config::Config;
-use input::{Direction, Event, Grab, InputEvent, EventManager, Key, KeyKind};
+use input::{Direction, Event, InputEvent, EventManager, Key, KeyKind};
 use log::LevelFilter;
 use net::{self, Message, PROTOCOL_VERSION};
 use std::collections::{HashMap, HashSet};
@@ -124,7 +124,7 @@ async fn run(
             event = manager.read() => {
                 let event = event?;
 
-                if let Event::Input { device_id, input, syn } = event {
+                if let Event::Input { device_id, input, syn: _ } = event {
                     if let InputEvent::Key { direction, kind: KeyKind::Key(key) } = input {
                         if let Some(state) = key_states.get_mut(&key) {
                             *state = direction == Direction::Down;
@@ -139,9 +139,8 @@ async fn run(
                                         kind: KeyKind::Key(*other_key),
                                     };
                                     if current == 0 {
-                                        // TODO
                                         let release_event = Event::Input {
-                                            device_id: manager.local_device_id,
+                                            device_id: device_id,
                                             input: release_input,
                                             syn: true,
                                         };
@@ -165,7 +164,7 @@ async fn run(
                                     };
                                     if new_current == 0 {
                                         let press_event = Event::Input {
-                                            device_id: manager.local_device_id,
+                                            device_id: device_id,
                                             input: press_input,
                                             syn: true,
                                         };
@@ -179,12 +178,6 @@ async fn run(
                                         let idx = new_current - 1;
                                         let _ = clients[idx].send(press_event);
                                     }
-                                }
-
-                                if new_current == 0 {
-                                    manager.grab(Grab::Ungrab);
-                                } else {
-                                    manager.grab(Grab::Grab);
                                 }
 
                                 current = new_current;
@@ -202,15 +195,16 @@ async fn run(
 
                     clients.remove(idx);
                     current = 0;
-                    manager.grab(Grab::Ungrab);
                 }
 
-                // manager.write(event).await?;
+                if let Event::Input { device_id: _, input: _, syn: _ } = event {
+                    manager.write(event).await?;
+                }
             }
             sender = client_receiver.recv() => {
                 let sender = sender.unwrap()?;
                 for device in manager.devices.values() {
-                    sender.send(Event::NewDevice(device.clone()));
+                    sender.send(Event::NewDevice(device.clone()))?;
                 }
                 clients.push(sender);
             }

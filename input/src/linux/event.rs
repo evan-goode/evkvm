@@ -1,7 +1,7 @@
 pub mod button;
 pub mod key;
 
-use crate::event::{Axis, Button, Direction, InputEvent, Key, KeyKind};
+use crate::event::{Button, Direction, InputEvent, Key, KeyKind};
 use crate::linux::glue;
 
 impl InputEvent {

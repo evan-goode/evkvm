@@ -1,6 +1,5 @@
-use crate::event::{Capability, AbsInfo, Device, InputEvent, Grab};
-use crate::linux::device_id;
-use crate::linux::glue::{self, libevdev, libevdev_uinput};
+use crate::event::{Capability, AbsInfo, Device, InputEvent};
+use crate::linux::glue;
 use std::ffi;
 use std::fs::{File, OpenOptions};
 use std::io::Error;
@@ -10,16 +9,11 @@ use std::os::unix::io::AsRawFd;
 use std::path::Path;
 use std::str::FromStr;
 use tokio::io::unix::AsyncFd;
-use std::ffi::CStr;
-
-//TODO
-use std::time::Duration;
-use tokio::time;
 
 pub(crate) struct EventReader {
     pub device: Device,
     file: AsyncFd<File>,
-    evdev: *mut libevdev,
+    evdev: *mut glue::libevdev,
 }
 
 impl EventReader {
@@ -52,21 +46,10 @@ impl EventReader {
         };
         let name = name_c_str.to_str().unwrap().to_owned();
 
-        // Check if we're not opening our own virtual device.
-        // println!("are we opening our own device? o.O");
-        // println!("name, {}", &name);
-        // let uniq_buf = unsafe { glue::libevdev_get_name(evdev) };
-        // if !uniq_buf.is_null() {
-        //     let uniq_c_str = unsafe { ffi::CStr::from_ptr(uniq_buf) };
-        //     let uniq = uniq_c_str.to_str().unwrap().to_owned();
-        //     println!("uniq, {}", &uniq);
-
-        if name.starts_with("skvm-") {
+        if (bustype as u32) == glue::BUS_VIRTUAL {
             unsafe {
                 glue::libevdev_free(evdev);
             }
-
-            println!("already opened!!!, {}", &name);
 
             return Err(OpenError::AlreadyOpened);
         }
@@ -78,17 +61,9 @@ impl EventReader {
         let num_str = &file_name[String::from("event").len()..];
         let id = u16::from_str(num_str).unwrap_or(0);
 
-        // let id = unsafe {
-        //     let uniq_ptr = glue::libevdev_get_name(evdev);
-        //     if uniq_ptr.is_null() {
-        //         name.clone()
-        //     } else {
-        //         ffi::CStr::from_ptr(name_ptr).to_str().unwrap().to_owned()
-        //     }
-        // };
-
         let mut capabilities = Vec::new();
         for type_ in 0..glue::EV_MAX {
+            if type_ == glue::EV_SW { continue; } // ignore EV_SW for now
             let has_type = unsafe {
                 glue::libevdev_has_event_type(evdev, type_)
             } == 1;
@@ -145,62 +120,19 @@ impl EventReader {
             capabilities,
         };
 
-        // unsafe {
-        //     glue::libevdev_set_id_vendor(evdev, device_id::VENDOR as _);
-        //     glue::libevdev_set_id_product(evdev, device_id::PRODUCT as _);
-        //     glue::libevdev_set_id_version(evdev, device_id::VERSION as _);
-        // }
-
-        // Don't grab for now
-        // let ret = unsafe { glue::libevdev_grab(evdev, glue::libevdev_grab_mode_LIBEVDEV_GRAB) };
-        // if ret < 0 {
-        //     unsafe {
-        //         glue::libevdev_free(evdev);
-        //     }
-
-        //     return Err(Error::from_raw_os_error(-ret).into());
-        // }
-
-        // let mut uinput = MaybeUninit::uninit();
-        // let ret = unsafe {
-        //     glue::libevdev_uinput_create_from_device(
-        //         evdev,
-        //         glue::libevdev_uinput_open_mode_LIBEVDEV_UINPUT_OPEN_MANAGED,
-        //         uinput.as_mut_ptr(),
-        //     )
-        // };
-
-        // if ret < 0 {
-        //     unsafe { glue::libevdev_free(evdev) };
-        //     return Err(Error::from_raw_os_error(-ret).into());
-        // }
-
-        // let uinput = unsafe { uinput.assume_init() };
-        //
+        let ret = unsafe { glue::libevdev_grab(evdev, glue::libevdev_grab_mode_LIBEVDEV_GRAB) };
+        if ret < 0 {
+            unsafe {
+                glue::libevdev_free(evdev);
+            }
+            return Err(Error::from_raw_os_error(-ret).into());
+        }
+        
         Ok(Self {
             file,
             evdev,
             device,
-            // uinput,
         })
-    }
-
-    pub fn grab(&mut self, grab: Grab) -> Result<(), Error> {
-        let ret = unsafe {
-            glue::libevdev_grab(
-                self.evdev,
-                match grab {
-                    Grab::Grab => glue::libevdev_grab_mode_LIBEVDEV_GRAB,
-                    Grab::Ungrab => glue::libevdev_grab_mode_LIBEVDEV_UNGRAB,
-                }
-            )
-        };
-
-        if ret < 0 {
-            return Err(Error::from_raw_os_error(-ret));
-        }
-
-        Ok(())
     }
 
     pub async fn read(&mut self) -> Result<InputEvent, Error> {
@@ -229,7 +161,6 @@ impl EventReader {
                 Err(_) => continue, // This means it would block.
             };
 
-            // Event::from_raw(event);
             if let Some(event) = InputEvent::from_raw(event) {
                 return Ok(event);
             }

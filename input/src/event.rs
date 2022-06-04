@@ -19,12 +19,6 @@ pub enum InputEvent {
     Other { type_: u16, code: u16, value: i32 },
 }
 
-#[derive(Copy, Clone, Debug)]
-pub enum Grab {
-    Grab,
-    Ungrab,
-}
-
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Device {
     pub id: u16,

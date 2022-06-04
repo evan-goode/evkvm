@@ -1,9 +1,7 @@
 use crate::event::{Device, InputEvent, Capability};
-use crate::linux::device_id;
 use crate::linux::glue::{self, input_event, libevdev, libevdev_uinput};
 use std::io::{Error, ErrorKind};
 use std::mem::MaybeUninit;
-use std::ops::RangeInclusive;
 use std::ffi;
 
 pub struct EventWriter {
@@ -90,11 +88,14 @@ unsafe fn setup_evdev(evdev: *mut libevdev, device: &Device) -> Result<(), Error
     glue::libevdev_set_id_vendor(evdev, device.vendor as _);
     glue::libevdev_set_id_product(evdev, device.product as _);
     glue::libevdev_set_id_version(evdev, device.version as _);
-    glue::libevdev_set_id_bustype(evdev, device.bustype as _);
+    glue::libevdev_set_id_bustype(evdev, glue::BUS_VIRTUAL as _);
 
-    let name = format!("skvm-{}", device.name);
-    let name_c_string = ffi::CString::new(name).unwrap();
+    // let name = format!("skvm-{}", device.name);
+    let name_c_string = ffi::CString::new(device.name.clone()).unwrap();
     glue::libevdev_set_name(evdev, name_c_string.as_ptr() as *const _);
+
+    let phys_c_string = ffi::CString::new("skvm").unwrap();
+    glue::libevdev_set_phys(evdev, phys_c_string.as_ptr() as *const _);
 
     for capability in &device.capabilities {
         let ret = match *capability {
