@@ -14,12 +14,9 @@ use tokio::sync::watch;
 use tokio::sync::oneshot;
 use tokio::time;
 
-pub const LOCAL_DEVICE_ID: u16 = u16::MAX;
-
 const EVENT_PATH: &str = "/dev/input";
 
 pub struct EventManager {
-    pub local_device_id: u16,
     pub devices: HashMap<u16, Device>,
     pub writers: HashMap<u16, EventWriter>,
     event_receiver: mpsc::UnboundedReceiver<Result<Event, Error>>,
@@ -56,7 +53,6 @@ impl EventManager {
         });
 
         Ok(EventManager {
-            local_device_id: LOCAL_DEVICE_ID,
             devices,
             writers,
             event_receiver,

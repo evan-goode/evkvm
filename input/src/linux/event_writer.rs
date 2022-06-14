@@ -1,8 +1,9 @@
-use crate::event::{Device, InputEvent, Capability};
+use crate::event::{Event, Device, InputEvent, Capability};
 use crate::linux::glue::{self, input_event, libevdev, libevdev_uinput};
 use std::io::{Error, ErrorKind};
 use std::mem::MaybeUninit;
 use std::ffi;
+use std::collections::HashMap;
 
 pub struct EventWriter {
     evdev: *mut libevdev,
@@ -83,19 +84,13 @@ impl Drop for EventWriter {
 unsafe impl Send for EventWriter {}
 
 unsafe fn setup_evdev(evdev: *mut libevdev, device: &Device) -> Result<(), Error> {
-    // TODO name
-
     glue::libevdev_set_id_vendor(evdev, device.vendor as _);
     glue::libevdev_set_id_product(evdev, device.product as _);
     glue::libevdev_set_id_version(evdev, device.version as _);
     glue::libevdev_set_id_bustype(evdev, glue::BUS_VIRTUAL as _);
 
-    // let name = format!("skvm-{}", device.name);
     let name_c_string = ffi::CString::new(device.name.clone()).unwrap();
     glue::libevdev_set_name(evdev, name_c_string.as_ptr() as *const _);
-
-    let phys_c_string = ffi::CString::new("skvm").unwrap();
-    glue::libevdev_set_phys(evdev, phys_c_string.as_ptr() as *const _);
 
     for capability in &device.capabilities {
         let ret = match *capability {
@@ -139,4 +134,52 @@ unsafe fn setup_evdev(evdev: *mut libevdev, device: &Device) -> Result<(), Error
     }
 
     Ok(())
+}
+
+
+pub struct WriterManager {
+    pub writers: HashMap<u16, EventWriter>,
+}
+
+impl WriterManager {
+    pub async fn new() -> Self {
+        let writers: HashMap<u16, EventWriter> = HashMap::new();
+
+        WriterManager { writers }
+    }
+
+    pub async fn write(&mut self, event: Event) -> Result<(), Error> {
+        match event {
+            Event::Input { device_id, input, syn } => {
+                match self.writers.get_mut(&device_id) {
+                    Some(writer) => {
+                        if syn {
+                            let syn_input = InputEvent::Other {
+                                type_: glue::EV_SYN as _,
+                                code: glue::SYN_REPORT as _,
+                                value: 0,
+                            };
+                            match writer.write(input).await {
+                                Ok(()) => writer.write(syn_input).await,
+                                Err(err) => Err(err),
+                            }
+                        } else {
+                            writer.write(input).await
+                        }
+                    },
+                    _ => Ok(()),
+                }
+            },
+            Event::NewDevice(device) => {
+                let id = device.id;
+                let writer = EventWriter::new(device).await?;
+                self.writers.insert(id, writer);
+                Ok(())
+            },
+            Event::RemoveDevice(device_id) => {
+                self.writers.remove(&device_id);
+                Ok(())
+            },
+        }
+    }
 }
