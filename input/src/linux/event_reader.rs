@@ -131,14 +131,15 @@ impl EventReader {
             capabilities,
         };
 
-        // let ret = unsafe { glue::libevdev_grab(evdev, glue::libevdev_grab_mode_LIBEVDEV_GRAB) };
-        // if ret < 0 {
-        //     unsafe {
-        //         glue::libevdev_free(evdev);
-        //     }
-        //     return Err(Error::from_raw_os_error(-ret).into());
-        // }
-        
+        let ret = unsafe { glue::libevdev_grab(evdev, glue::libevdev_grab_mode_LIBEVDEV_GRAB) };
+        if ret < 0 {
+            unsafe {
+                glue::libevdev_free(evdev);
+            }
+            // Device is probably grabbed by another process
+            return Err(OpenError::AlreadyOpened);
+        }
+
         Ok(Self {
             file,
             evdev,

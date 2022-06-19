@@ -1,2 +1,2 @@
 [workspace]
-members = ["server", "input", "net"]
+members = ["evkvm", "input", "net"]

@@ -8,31 +8,32 @@ use log::LevelFilter;
 use net::{self, Message, PROTOCOL_VERSION};
 use rcgen::generate_simple_self_signed;
 use ring::digest::{digest, SHA256};
+use rustls::ServerName;
 use rustls_pemfile;
 use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
+use std::convert::TryFrom;
 use std::fs::OpenOptions;
 use std::io::Write;
-use std::net::SocketAddr;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::process;
 use std::sync::Arc;
-use structopt::StructOpt;
+use std::time::Duration;
 use tokio::fs as tokio_fs;
+use tokio::io::BufReader;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpListener;
+use tokio::net::TcpStream;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use tokio::time;
 use tokio_rustls::rustls;
-use tokio::net::TcpStream;
-use tokio::io::BufReader;
-use rustls::ServerName;
-use std::convert::TryFrom;
-use std::time::Duration;
+use clap::{Parser};
 
 fn load_or_generate_identity(
-    certificate_path: &Path
+    certificate_path: &Path,
+    generate: bool,
 ) -> Result<(rustls::Certificate, rustls::PrivateKey), Error> {
     let keyfile = std::fs::File::open(&certificate_path);
     match keyfile {
@@ -59,7 +60,7 @@ fn load_or_generate_identity(
                 (None, None) => Err(anyhow!("Identity file at {} is missing both a certificate and a private key!", &certificate_path.display())),
             }
         },
-        Err(ref e) if e.kind() == std::io::ErrorKind::NotFound => {
+        Err(ref e) if e.kind() == std::io::ErrorKind::NotFound && generate => {
             let cert = generate_simple_self_signed([String::from("localhost")]).unwrap();
 
             let pem = cert.serialize_pem()?;
@@ -128,6 +129,12 @@ impl ClientVerifier {
     }
 }
 
+fn get_cert_fingerprint(cert: &rustls::Certificate) -> String {
+    let rustls::Certificate(certificate_bytes) = cert;
+    let fingerprint_digest = digest(&SHA256, certificate_bytes);
+    fingerprint_digest.as_ref().encode_hex::<String>()
+}
+
 impl<'a> rustls::server::ClientCertVerifier for ClientVerifier {
     fn client_auth_root_subjects(&self) -> Option<rustls::DistinguishedNames> {
         Some(vec! [])
@@ -141,13 +148,13 @@ impl<'a> rustls::server::ClientCertVerifier for ClientVerifier {
         _intermediates: &[rustls::Certificate],
         _now: std::time::SystemTime
     ) -> Result<rustls::server::ClientCertVerified, rustls::Error> {
-
-        let rustls::Certificate(certificate_bytes) = end_identity;
-        let fingerprint_digest = digest(&SHA256, certificate_bytes);
-        let fingerprint = fingerprint_digest.as_ref().encode_hex::<String>();
+        let fingerprint = get_cert_fingerprint(&end_identity);
 
         let receiver = self.receivers.iter().find(|&receiver|
-            receiver.fingerprint == fingerprint
+            match receiver.fingerprint {
+                Some(ref receiver_fingerprint) => receiver_fingerprint == &fingerprint,
+                None => false,
+            }
         );
 
         match receiver {
@@ -157,7 +164,7 @@ impl<'a> rustls::server::ClientCertVerifier for ClientVerifier {
             },
             Some(receiver) => {
                 let name = match &receiver.nick {
-                    None => &receiver.fingerprint,
+                    None => &fingerprint,
                     Some(nick) => nick,
                 };
                 log::info!("{} connected", name);
@@ -173,7 +180,6 @@ async fn run_server<'a>(
     identity: (rustls::Certificate, rustls::PrivateKey),
     receivers: Vec<Receiver>,
 ) -> Result<Infallible, Error> {
-
     let (cert, key) = identity;
 
     let verifier = ClientVerifier::new(receivers);
@@ -313,9 +319,7 @@ async fn run_server<'a>(
                     current = 0;
                 }
 
-                if let Event::Input { device_id: _, input: _, syn: _ } = event {
-                    writer_manager.write(event).await?;
-                }
+                writer_manager.write(event).await?;
             }
             sender = client_receiver.recv() => {
                 let sender = sender.unwrap()?;
@@ -344,23 +348,28 @@ impl rustls::client::ServerCertVerifier for ServerVerifier {
         _server_name: &rustls::ServerName,
         _scts: &mut dyn Iterator<Item = &[u8]>, 
         _ocsp_response: &[u8],
-        _now: std::time::SystemTime
+        _now: std::time::SystemTime,
     ) -> Result<rustls::client::ServerCertVerified, rustls::Error> {
-        let rustls::Certificate(certificate_bytes) = end_identity;
-        let fingerprint_digest = digest(&SHA256, certificate_bytes);
-        let fingerprint = fingerprint_digest.as_ref().encode_hex::<String>();
+        let fingerprint = get_cert_fingerprint(&end_identity);
 
         let name = match &self.sender.nick {
             None => &self.sender.address,
             Some(nick) => nick,
         };
 
-        if &fingerprint == &self.sender.fingerprint {
+        let fingerprint_matches = match self.sender.fingerprint {
+            Some(ref sender_fingerprint) => &fingerprint == sender_fingerprint,
+            None => false,
+        };
+
+        if fingerprint_matches {
+            let none: String = String::from("<none>");
+            let fingerprint_display = self.sender.fingerprint.as_ref().unwrap_or(&none);
             log::info!(
                 "Fingerprint {} did not match fingerprint expected for sender {}, {}!",
                 fingerprint,
                 name,
-                self.sender.fingerprint
+                fingerprint_display,
             );
             Err(rustls::Error::InvalidCertificateSignature)
         } else {
@@ -412,7 +421,7 @@ async fn client(
         .with_safe_defaults()
         .with_custom_certificate_verifier(Arc::new(verifier))
         .with_single_cert(vec! [cert], key)
-        .expect("uh oh!");
+        .expect("Invalid identity!");
     
     let connector = tokio_rustls::TlsConnector::from(Arc::new(config));
 
@@ -450,14 +459,19 @@ async fn client(
     }
 }
 
-#[derive(StructOpt)]
-#[structopt(name = "evkvm", about = "evdev kvm")]
+#[derive(clap::Subcommand)]
+enum Verb {
+    Fingerprint,
+}
+
+
+#[derive(clap::Parser)]
+#[clap(author, version, about, long_about = None)]
 struct Args {
-    #[structopt(help = "Path to configuration file")]
-    #[cfg_attr(
-        target_os = "linux",
-        structopt(default_value = "/etc/evkvm/config.toml")
-    )]
+    #[clap(subcommand)]
+    verb: Option<Verb>,
+
+    #[clap(short, long, value_parser, default_value = "/etc/evkvm/config.toml")]
     config_path: PathBuf,
 }
 
@@ -468,7 +482,7 @@ async fn main() {
         .filter(None, LevelFilter::Info)
         .init();
 
-    let args = Args::from_args();
+    let args = Args::parse();
     let config = match tokio_fs::read_to_string(&args.config_path).await {
         Ok(config) => config,
         Err(err) => {
@@ -485,13 +499,37 @@ async fn main() {
         }
     };
 
-    let identity = load_or_generate_identity(&config.identity_path).unwrap();
+    let default_listen_address = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), DEFAULT_PORT);
+    let default_switch_keys: HashSet<Key> = HashSet::from([Key::LeftAlt, Key::RightAlt]);
+    let default_identity_path: PathBuf = PathBuf::from("/var/lib/evkvm/identity.pem");
 
-    let listen_address = config.listen_address;
-    let switch_keys = config.switch_keys;
+    let identity_path = config.identity_path.unwrap_or(default_identity_path);
+    let listen_address = config.listen_address.unwrap_or(default_listen_address);
+    let switch_keys = config.switch_keys.unwrap_or(default_switch_keys);
     let senders = config.senders;
     let receivers = config.receivers;
 
+    if let Some(Verb::Fingerprint) = args.verb {
+        let identity = match load_or_generate_identity(&identity_path, false) {
+            Ok(identity) => identity,
+            Err(err) => {
+                log::error!("Error loading identity: {}", err);
+                process::exit(1);
+            }
+        };
+        let (cert, _) = identity;
+        let fingerprint = get_cert_fingerprint(&cert);
+        println!("{}", fingerprint);
+        process::exit(0);
+    }
+
+    let identity = match load_or_generate_identity(&identity_path, true) {
+        Ok(identity) => identity,
+        Err(err) => {
+            log::error!("Error loading or generating identity: {}", err);
+            process::exit(1);
+        }
+    };
 
     let is_server = match receivers {
         Some(ref receivers) => !receivers.is_empty(),
@@ -504,14 +542,7 @@ async fn main() {
 
     tokio::select! {
         result = async {
-            match listen_address {
-                Some(listen_address) => {
-                    run_server(listen_address, &switch_keys, identity.clone(), receivers.unwrap()).await
-                },
-                None => {
-                    Err(anyhow!("uh oh"))
-                }
-            }
+            run_server(listen_address, &switch_keys, identity.clone(), receivers.unwrap()).await
         }, if is_server => {
             if let Err(err) = result {
                 log::error!("Error: {:#}", err);

@@ -1,9 +1,9 @@
- { stdenv, lib, rustPlatform, fetchFromGitHub
+{ stdenv, lib, rustPlatform, fetchFromGitHub
 , pkg-config, libevdev, openssl, llvmPackages, linuxHeaders
 }:
 
 rustPlatform.buildRustPackage rec {
-  pname = "rkvm-unstable";
+  pname = "evkvm";
   version = "dev";
 
   # src = fetchFromGitHub {
@@ -33,8 +33,8 @@ rustPlatform.buildRustPackage rec {
 
   meta = with lib; {
     description = "Virtual KVM switch for Linux machines";
-    homepage = "https://github.com/htrefil/rkvm";
-    license = licenses.mit;
-    maintainers = [ maintainers.colemickens ];
+    homepage = "https://github.com/evan-goode/evkvm";
+    license = licenses.gplv3;
+    maintainers = [ maintainers.evangoode ];
   };
 }
