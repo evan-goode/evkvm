@@ -1,10 +1,10 @@
 pub use crate::event::Key;
 
 impl Key {
-    pub(crate) fn to_raw(&self) -> u16 {
+    pub(crate) fn to_raw(self) -> u16 {
         use Key::*;
 
-        match *self {
+        match self {
             A => 0x001E,
             Ab => 0x0196,
             AddressBook => 0x01AD,

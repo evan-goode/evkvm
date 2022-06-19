@@ -34,7 +34,7 @@ where
         let mut bytes = [0; 4];
         reader.read_exact(&mut bytes).await?;
 
-        ((bytes[0] as u32) <<  0) +
+         (bytes[0] as u32) +
         ((bytes[1] as u32) <<  8) +
         ((bytes[2] as u32) << 16) +
         ((bytes[3] as u32) << 24)

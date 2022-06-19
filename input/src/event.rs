@@ -33,8 +33,8 @@ pub struct Device {
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum Capability {
     Other { type_: u16, code: u16 },
-    ABS { code: u16, info: AbsInfo },
-    REP { code: u16, value: i32 },
+    Abs { code: u16, info: AbsInfo },
+    Rep { code: u16, value: i32 },
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]

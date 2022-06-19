@@ -103,13 +103,13 @@ impl EventReader {
                                     resolution: (*raw_info).resolution,
                                 }
                             };
-                            Capability::ABS { code: code as u16, info }
+                            Capability::Abs { code: code as u16, info }
                         },
                         glue::EV_REP => {
                             let value = unsafe {
                                 glue::libevdev_get_event_value(evdev, type_, code)
                             };
-                            Capability::REP { code: code as u16, value }
+                            Capability::Rep { code: code as u16, value }
                         },
                         _ => Capability::Other {
                             type_: type_ as u16,
@@ -284,7 +284,7 @@ async fn spawn_reader(
         return Ok(());
     }
 
-    let reader = match EventReader::new(&path) {
+    let reader = match EventReader::new(path) {
         Ok(reader) => reader,
         Err(OpenError::Io(err)) => return Err(err),
         Err(OpenError::AlreadyOpened) => return Ok(()),

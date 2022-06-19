@@ -21,7 +21,7 @@ impl EventWriter {
             return Err(Error::new(ErrorKind::Other, "Failed to create device"));
         }
 
-        if let Err(err) = unsafe { setup_evdev(evdev, &device) } {
+        if let Err(err) = unsafe { setup_evdev(evdev, device) } {
             unsafe {
                 glue::libevdev_free(evdev);
             }
@@ -94,7 +94,7 @@ unsafe fn setup_evdev(evdev: *mut libevdev, device: &Device) -> Result<(), Error
 
     for capability in &device.capabilities {
         let ret = match *capability {
-            Capability::ABS { code, info } => {
+            Capability::Abs { code, info } => {
                 let absinfo = glue::input_absinfo {
                     value: info.value,
                     minimum: info.minimum,
@@ -110,7 +110,7 @@ unsafe fn setup_evdev(evdev: *mut libevdev, device: &Device) -> Result<(), Error
                     &absinfo as *const glue::input_absinfo as *const _,
                 )
             },
-            Capability::REP { code, value } => {
+            Capability::Rep { code, value } => {
                 glue::libevdev_enable_event_code(
                     evdev,
                     glue::EV_REP,

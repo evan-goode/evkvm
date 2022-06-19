@@ -5,8 +5,8 @@ use crate::event::{Button, Direction, InputEvent, Key, KeyKind};
 use crate::linux::glue;
 
 impl InputEvent {
-    pub(crate) fn to_raw(&self) -> glue::input_event {
-        let (type_, code, value) = match *self {
+    pub(crate) fn to_raw(self) -> glue::input_event {
+        let (type_, code, value) = match self {
             InputEvent::Other {
                 type_,
                 code,
@@ -61,7 +61,7 @@ impl KeyKind {
             .or_else(|| Button::from_raw(code).map(KeyKind::Button))
     }
 
-    pub(crate) fn to_raw(&self) -> u16 {
+    pub(crate) fn to_raw(self) -> u16 {
         match self {
             KeyKind::Key(key) => key.to_raw(),
             KeyKind::Button(button) => button.to_raw(),
