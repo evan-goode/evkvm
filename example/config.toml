@@ -1,0 +1,27 @@
+# Listen address will default to 0.0.0.0:5258 if not specified
+listen-address = "0.0.0.0:5258"
+
+# Switch to next client by pressing both Alt keys at the same time
+switch-keys = ["LeftAlt", "RightAlt"]
+identity-path = "/var/lib/evkvm/identity.pem"
+
+# List of devices that receive input events
+# [[receivers]]
+# nick = "Receiver 1"
+# fingerprint = "REPLACE ME"
+
+# [[receivers]]
+# nick = "Receiver 2"
+# fingerprint = "REPLACE ME"
+
+# List of devices that send input events
+# [[senders]]
+# nick = "Sender 1"
+# address = "192.168.1.2" # IP address or hostname of the sender
+# fingerprint = "REPLACE ME"
+
+# [[senders]]
+# nick = "Sender 2"
+# address = "192.168.1.3" # IP address or hostname of the sender
+# port = 5258 # port will default to 5258 if not specified
+# fingerprint = "REPLACE ME"

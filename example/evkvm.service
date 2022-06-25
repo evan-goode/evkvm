@@ -1,10 +1,11 @@
 [Unit]
-Description=rkvm server
+Description=evkvm
 After=network-online.target
 
 [Service]
-ExecStart=/opt/rkvm/server
+ExecStart=/opt/evkvm/evkvm
 Restart=always
+StateDirectory=evkvm
 
 [Install]
 WantedBy=multi-user.target

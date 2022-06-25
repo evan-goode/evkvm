@@ -152,11 +152,15 @@ async fn main() {
                 }
             };
 
+            let (cert, _) = &identity;
+            let fingerprint = get_cert_fingerprint(cert);
+            log::info!("This device has fingerprint {}", fingerprint);
+
             let should_run_server = !config.receivers.is_empty();
             let should_run_client = !config.senders.is_empty();
 
             if !(should_run_server || should_run_client) {
-                log::error!("No senders or receivers specified, exiting.");
+                log::error!("No senders or receivers configured, exiting.");
                 process::exit(1);
             }
 

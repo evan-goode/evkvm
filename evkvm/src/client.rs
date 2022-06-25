@@ -67,13 +67,13 @@ pub async fn run_client(
 ) {
     let handles: Vec<_> = senders.into_iter().map(|sender| {
         let identity = identity.clone();
-        handle_client_connection(sender, identity)
+        client_handle_connection(sender, identity)
     }).collect();
 
     futures::future::join_all(handles).await;
 }
 
-async fn handle_client_connection(
+async fn client_handle_connection(
     sender: Sender,
     identity: Identity,
 ) -> Infallible {
