@@ -58,7 +58,7 @@ Switching between different clients is done by a configurable keyboard shortcut.
 1. Follow the steps above to build `evkvm`. Then, install the binary:
 
 	```
-	sudo cp ./target/release/evkvm /usr/local/bin/evkvm
+	sudo cp ./target/release/evkvm /usr/bin/evkvm
 	```
 
 2. Install the example config file
@@ -76,14 +76,14 @@ Switching between different clients is done by a configurable keyboard shortcut.
 4. Make sure the `uinput` kernel module is loaded
 
 	```
-	sudo cp ./example/uinput.conf /etc/modules-load.d/uinput.conf
+	sudo cp ./example/evkvm-uinput.conf /etc/modules-load.d/evkvm-uinput.conf
 	sudo modprobe uinput
 	```
 
 5. Allow members of the `input` group to access `/dev/uinput`
 
 	```
-	sudo cp ./example/40-uinput.rules /etc/udev/rules.d/40-uinput.rules
+	sudo cp ./example/40-evkvm-uinput.rules /etc/udev/rules.d/40-evkvm-uinput.rules
 	sudo udevadm control --reload-rules
 	```
 
