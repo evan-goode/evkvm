@@ -1,0 +1,39 @@
+# Maintainer: Evan Goode <mail@evangoo.de>
+pkgname=evkvm-git
+_pkgname=evkvm
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Virtual KVM switch for Linux machines"
+arch=("x86_64")
+url="https://github.com/evan-goode/${_pkgname}"
+license=("MIT")
+makedepends=("git" "clang" "libevdev" "pkg-config" "rust")
+source=("git+https://github.com/evan-goode/${_pkgname}.git"
+        evkvm.conf)
+sha256sums=("SKIP"
+            "29df642d4c531c1bb7c68124833e83e6b1bf8119f47451804e9c5b87dcb495b2")
+backup=("etc/${_pkgname}/config.toml")
+install=evkvm.install
+
+pkgver() {
+  cd "${srcdir}/${_pkgname}"
+  git describe --long --tags | sed 's/^v//;s/\([^-]*-g\)/r\1/;s/-/./g'
+}
+
+build() {
+  cd "${srcdir}/${_pkgname}"
+  cargo build --release
+}
+
+package() {
+  cd "${srcdir}/${_pkgname}"
+  install -Dm755 "target/release/${_pkgname}" "${pkgdir}/usr/bin/${_pkgname}"
+  install -Dm644 "example/config.toml" "${pkgdir}/etc/${_pkgname}/config.toml"
+  install -Dm644 "example/${_pkgname}.service" "${pkgdir}/usr/lib/systemd/system/${_pkgname}.service"
+  install -Dm644 "example/40-${_pkgname}-uinput.rules" "${pkgdir}/etc/udev/rules.d/40-${_pkgname}-uinput.rules"
+  install -Dm644 "example/${_pkgname}-uinput.conf" "${pkgdir}/etc/modules-load.d/${_pkgname}-uinput.conf"
+  install -Dm644 "LICENSE" "${pkgdir}/usr/share/licenses/${_pkgname}/LICENSE"
+
+  cd "${srcdir}"
+  install -Dm644 "${_pkgname}.conf" "${pkgdir}/usr/lib/sysusers.d/${_pkgname}.conf"
+}
