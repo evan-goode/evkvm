@@ -491,3 +491,21 @@ pub enum Key {
     ZoomOut,
     ZoomReset,
 }
+
+impl Key {
+    pub fn is_modifier(self: &Self) -> bool {
+        match self {
+            &Key::Fn |
+            &Key::LeftAlt |
+            &Key::LeftCtrl |
+            &Key::LeftMeta |
+            &Key::LeftShift |
+            &Key::RightAlt |
+            &Key::RightCtrl |
+            &Key::RightMeta |
+            &Key::RightShift => true,
+            _ => false,
+        }
+    }
+}
+

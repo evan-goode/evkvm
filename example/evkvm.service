@@ -3,7 +3,8 @@ Description=evkvm
 After=network-online.target
 
 [Service]
-ExecStart=/opt/evkvm/evkvm
+User=evkvm
+ExecStart=/usr/local/bin/evkvm
 Restart=always
 StateDirectory=evkvm
 

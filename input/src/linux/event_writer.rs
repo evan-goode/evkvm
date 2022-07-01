@@ -39,6 +39,8 @@ impl EventWriter {
         };
 
         if ret < 0 {
+            log::error!("Error creating a uinput device, is the uinput kernel module loaded?");
+            log::error!("Check `lsmod | grep uinput`");
             unsafe { glue::libevdev_free(evdev) };
             return Err(Error::from_raw_os_error(-ret));
         }

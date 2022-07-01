@@ -110,7 +110,7 @@ fn print_fingerprint(identity_path: &Path) {
     let identity = match load_identity(identity_path) {
         Ok(Some(identity)) => identity,
         Ok(None) => {
-            log::error!("{} does not exist. Run `evkvm` with no arguments to generate it.",
+            log::error!("{} does not exist yet. Run `evkvm` with no arguments to generate it.",
                         identity_path.display());
             process::exit(1);
         }

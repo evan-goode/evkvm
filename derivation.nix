@@ -34,7 +34,7 @@ rustPlatform.buildRustPackage rec {
   meta = with lib; {
     description = "Virtual KVM switch for Linux machines";
     homepage = "https://github.com/evan-goode/evkvm";
-    license = licenses.gplv3;
+    license = licenses.mit;
     maintainers = [ maintainers.evangoode ];
   };
 }

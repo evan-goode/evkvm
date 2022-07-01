@@ -159,12 +159,14 @@ pub async fn run_server<'a>(
 
     let mut clients: Vec<UnboundedSender<Event>> = Vec::new();
     let mut current = 0;
+
     let mut key_states: HashMap<_, _> = switch_keys
         .iter()
         .copied()
         .map(|key| (key, false))
         .collect();
     loop {
+        let mut swallow_input = false;
         tokio::select! {
             event = reader_manager.read() => {
                 let event = event?;
@@ -174,38 +176,37 @@ pub async fn run_server<'a>(
                     input: InputEvent::Key { direction, kind: KeyKind::Key(key) },
                     syn: _
                 } = event {
-                        if let Some(state) = key_states.get_mut(&key) {
-                            *state = direction == Direction::Down;
-                            if key_states.iter().filter(|(_, state)| **state).count() == key_states.len() {
-                                let new_current = (current + 1) % (clients.len() + 1);
+                    if let Some(state) = key_states.get_mut(&key) {
+                        *state = direction == Direction::Down;
+                        if key_states.iter().filter(|(_, state)| **state).count() == key_states.len() {
+                            swallow_input = true;
 
-                                for (other_key, _) in key_states.iter() {
-                                    // On current client, release all currently pressed keys from the combo
-                                    // NOTE: This will NOT release other keys that are not part of the combo
-                                    let release_input = InputEvent::Key {
-                                        direction: Direction::Up,
-                                        kind: KeyKind::Key(*other_key),
-                                    };
-                                    if current == 0 {
-                                        let release_event = Event::Input {
-                                            device_id,
-                                            input: release_input,
-                                            syn: true,
-                                        };
-                                        writer_manager.write(release_event).await?;
-                                    } else {
-                                        let release_event = Event::Input {
-                                            device_id,
-                                            input: release_input,
-                                            syn: true,
-                                        };
-                                        let idx = current - 1;
-                                        // We cannot remove broken client here, to not crash in next iteration,
-                                        // and it will be removed later one anyways, therefore we just ignore error here
-                                        let _ = clients[idx].send(release_event);
-                                    }
+                            let new_current = (current + 1) % (clients.len() + 1);
 
-                                    // On new client, press all currently pressed keys from the combo
+                            for (other_key, _) in key_states.iter() {
+                                // On current client, release all currently pressed keys from the combo
+                                // NOTE: This will NOT release other keys that are not part of the combo
+                                let release_input = InputEvent::Key {
+                                    direction: Direction::Up,
+                                    kind: KeyKind::Key(*other_key),
+                                };
+                                let release_event = Event::Input {
+                                    device_id,
+                                    input: release_input,
+                                    syn: true,
+                                };
+                                if current == 0 {
+                                    writer_manager.write(release_event).await?;
+                                } else {
+                                    let idx = current - 1;
+                                    // We cannot remove broken client here, to not crash in next iteration,
+                                    // and it will be removed later one anyways, therefore we just ignore error here
+                                    let _ = clients[idx].send(release_event);
+                                }
+
+                                // On new client, press all currently pressed modifier keys from the combo
+
+                                if other_key.is_modifier() {
                                     let press_input = InputEvent::Key {
                                         direction: Direction::Down,
                                         kind: KeyKind::Key(*other_key),
@@ -227,11 +228,12 @@ pub async fn run_server<'a>(
                                         let _ = clients[idx].send(press_event);
                                     }
                                 }
-
-                                current = new_current;
-                                log::info!("Switching to client {}", current);
                             }
+
+                            current = new_current;
+                            log::info!("Switching to client {}", current);
                         }
+                    }
                 }
 
                 if current != 0 {
@@ -242,9 +244,12 @@ pub async fn run_server<'a>(
 
                     clients.remove(idx);
                     current = 0;
+                    log::info!("Switching to client {}", current);
                 }
 
-                writer_manager.write(event).await?;
+                if !swallow_input {
+                    writer_manager.write(event).await?;
+                }
             }
             sender = client_receiver.recv() => {
                 let sender = sender.unwrap()?;

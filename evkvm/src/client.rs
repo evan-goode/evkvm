@@ -45,6 +45,9 @@ impl rustls::client::ServerCertVerifier for ServerVerifier {
         };
 
         if fingerprint_matches {
+            log::info!("connected to {}", name);
+            Ok(rustls::client::ServerCertVerified::assertion())
+        } else {
             let none: String = String::from("<none>");
             let fingerprint_display = self.sender.fingerprint.as_ref().unwrap_or(&none);
             log::info!(
@@ -54,9 +57,6 @@ impl rustls::client::ServerCertVerifier for ServerVerifier {
                 fingerprint_display,
             );
             Err(rustls::Error::InvalidCertificateSignature)
-        } else {
-            log::info!("connected to {}", name);
-            Ok(rustls::client::ServerCertVerified::assertion())
         }
     }
 }

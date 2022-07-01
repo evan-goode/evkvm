@@ -5,7 +5,7 @@ listen-address = "0.0.0.0:5258"
 switch-keys = ["LeftAlt", "RightAlt"]
 identity-path = "/var/lib/evkvm/identity.pem"
 
-# List of devices that receive input events
+# List of devices that receive input events FROM this device
 # [[receivers]]
 # nick = "Receiver 1"
 # fingerprint = "REPLACE ME"
@@ -14,7 +14,7 @@ identity-path = "/var/lib/evkvm/identity.pem"
 # nick = "Receiver 2"
 # fingerprint = "REPLACE ME"
 
-# List of devices that send input events
+# List of devices that send input events TO this device
 # [[senders]]
 # nick = "Sender 1"
 # address = "192.168.1.2" # IP address or hostname of the sender

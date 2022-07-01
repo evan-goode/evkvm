@@ -1,19 +1,18 @@
 [package]
 name = "input"
 version = "0.2.0"
-authors = ["Jan Trefil <8711792+htrefil@users.noreply.github.com>"]
+authors = ["Evan Goode <mail@evangoo.de>"]
 edition = "2018"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
-serde = { version = "1.0.117", features = ["derive"] }
 futures = "0.3.8"
+log = "0.4.11"
+serde = { version = "1.0.117", features = ["derive"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 inotify = "0.9.2"
-tokio = { version = "1.0.1", features = ["fs", "io-util", "net", "sync", "rt", "time"] }
 libc = "0.2.77"
+tokio = { version = "1.0.1", features = ["fs", "io-util", "net", "sync", "rt", "time"] }
 
 [build-dependencies]
 bindgen = "0.55.1"
