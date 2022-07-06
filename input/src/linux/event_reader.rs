@@ -28,16 +28,53 @@ pub(crate) struct EventReader {
 }
 
 impl EventReader {
-    pub fn new(path: &Path) -> Result<Self, OpenError> {
-        let file = OpenOptions::new()
-            .read(true)
-            .custom_flags(libc::O_NONBLOCK)
-            .open(path)
-            .and_then(AsyncFd::new)?;
+    pub async fn new(path: &Path) -> Result<Self, OpenError> {
+        let file_name = path
+            .file_name()
+            .and_then(|file_name| file_name.to_str())
+            .unwrap();
+        let num_str = &file_name[String::from("event").len()..];
+        let id = u16::from_str(num_str).unwrap_or(0);
+
+        // When running as non-root, we have to wait for udev to set the proper permissions on new
+        // devices. Sometimes (always?), our inotify event comes through before udev sets the
+        // permissions. We could use `udevadm settle`, or set up an inotify on the file attributes,
+        // but it's simpler to just poll.
+
+        let mut total_slept_millis = 0;
+        let timeout_millis = 1000;
+
+        let file = loop {
+            let file = OpenOptions::new()
+                .read(true)
+                .custom_flags(libc::O_NONBLOCK)
+                .open(path)
+                .and_then(AsyncFd::new);
+
+            match file {
+                Ok(file) => { break file },
+                Err(err) => {
+                    match err.kind() {
+                        ErrorKind::NotFound => { return Err(OpenError::AlreadyOpened); },
+                        ErrorKind::PermissionDenied => {
+                            if total_slept_millis < timeout_millis {
+                                let millis = 10;
+                                tokio::time::sleep(Duration::from_millis(millis)).await;
+                                total_slept_millis += millis;
+                            } else {
+                                return Err(OpenError::Io(err));
+                            }
+                        },
+                        _ => { return Err(OpenError::Io(err)); },
+                    };
+                }
+            }
+        };
 
         let mut evdev = MaybeUninit::uninit();
         let ret = unsafe { glue::libevdev_new_from_fd(file.as_raw_fd(), evdev.as_mut_ptr()) };
         if ret < 0 {
+            log::error!("Error creating reader");
             return Err(Error::from_raw_os_error(-ret).into());
         }
 
@@ -64,13 +101,6 @@ impl EventReader {
 
             return Err(OpenError::AlreadyOpened);
         }
-
-        let file_name = path
-            .file_name()
-            .and_then(|file_name| file_name.to_str())
-            .unwrap();
-        let num_str = &file_name[String::from("event").len()..];
-        let id = u16::from_str(num_str).unwrap_or(0);
 
         let mut capabilities = Vec::new();
         for type_ in 0..glue::EV_MAX {
@@ -284,7 +314,7 @@ async fn spawn_reader(
         return Ok(());
     }
 
-    let reader = match EventReader::new(path) {
+    let reader = match EventReader::new(path).await {
         Ok(reader) => reader,
         Err(OpenError::Io(err)) => return Err(err),
         Err(OpenError::AlreadyOpened) => return Ok(()),

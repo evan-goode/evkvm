@@ -67,6 +67,7 @@ impl EventWriter {
         };
 
         if ret < 0 {
+            log::error!("Error writing event {:?}", &event);
             return Err(Error::from_raw_os_error(-ret));
         }
 
@@ -130,7 +131,7 @@ unsafe fn setup_evdev(evdev: *mut libevdev, device: &Device) -> Result<(), Error
             },
         };
         if ret < 0 {
-            println!("error enabling capability {:?}", capability);
+            log::error!("Error enabling capability {:?}", capability);
             return Err(Error::from_raw_os_error(-ret));
         }
     }
