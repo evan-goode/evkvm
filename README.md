@@ -209,4 +209,4 @@ All contributions, including both PRs and issues, are very welcome.
 ## License
 [MIT](LICENSE)
 
-The original license for rkvm is included as [LICENSE.rkvm](https://github.com/evan-goode/evkvm/blob/master/LICENSE).
+The original license for rkvm is included as [LICENSE.rkvm](https://github.com/evan-goode/evkvm/blob/master/LICENSE.rkvm).
